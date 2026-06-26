@@ -1,0 +1,32 @@
+# Node / Electron desktop
+node_modules/
+dist/
+build/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+
+# Android / Gradle
+.gradle/
+local.properties
+*.iml
+*.iml.bak
+EduAdminMobile/.gradle/
+EduAdminMobile/build/
+EduAdminMobile/app/build/
+EduAdminMobile/local.properties
+EduAdminMobile/app/schemas/
+
+# APK / AAB release artifacts
+release/*.apk
+release/*.aab
+release/*.zip
+
+# Kotlin build caches
+**/.kotlin/
+
+# IDE
+.idea/
+*.swp

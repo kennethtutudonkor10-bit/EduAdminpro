@@ -1,0 +1,304 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+:root {
+  /* Default: Premium Slate, Emerald, and Violet colors */
+  --primary-bg: #0b1d2d;
+  --primary-accent: #2563eb;
+  --primary-accent-hover: #1d4ed8;
+  --primary-accent-light: #eff6ff;
+  --primary-text-accent: #2563eb;
+  --primary-accent-text: #ffffff;
+  --terminal-accent: #c084fc;
+  --terminal-text: #10b981;
+
+  /* Sidebar high-contrast navigation colors */
+  --sidebar-text: #cbd5e1;
+  --sidebar-text-hover: #ffffff;
+  --sidebar-hover-bg: rgba(255, 255, 255, 0.08);
+
+  /* Main Area Theme Adaptability */
+  --main-bg: #f8fafc;
+  --card-bg: #ffffff;
+  --border-color: #cbd5e1;
+}
+
+body.theme-default {
+  --primary-bg: #0b1d2d;
+  --primary-accent: #2563eb;
+  --primary-accent-hover: #1d4ed8;
+  --primary-accent-light: #eff6ff;
+  --primary-text-accent: #2563eb;
+  --primary-accent-text: #ffffff;
+  --terminal-accent: #c084fc;
+  --terminal-text: #10b981;
+  --main-bg: #f8fafc;
+  --card-bg: #ffffff;
+  --border-color: #cbd5e1;
+}
+
+body.theme-yellow {
+  /* Sunshine Yellow: Deep charcoal with vibrant yellow action keys */
+  --primary-bg: #1c1917;
+  --primary-accent: #eab308;
+  --primary-accent-hover: #ca8a04;
+  --primary-accent-light: #fef9c3;
+  --primary-text-accent: #ca8a04;
+  --primary-accent-text: #1c1917; /* High contrast dark text on yellow background */
+  --terminal-accent: #facc15;
+  --terminal-text: #fef08a;
+  --main-bg: #f5f5f4; /* Warm stone-100 instead of slate-50 */
+  --card-bg: #ffffff;
+  --border-color: #e7e5e4;
+}
+
+body.theme-red {
+  /* Crimson Red: Maroon backgrounds with warning red controls */
+  --primary-bg: #2d1616;
+  --primary-accent: #dc2626;
+  --primary-accent-hover: #b91c1c;
+  --primary-accent-light: #fef2f2;
+  --primary-text-accent: #dc2626;
+  --primary-accent-text: #ffffff;
+  --terminal-accent: #fca5a5;
+  --terminal-text: #fee2e2;
+  --main-bg: #fef2f2; /* soft red-50 */
+  --card-bg: #ffffff;
+  --border-color: #fca5a5;
+}
+
+body.theme-blue {
+  /* Sky Blue: Navy background layout with ocean blue triggers */
+  --primary-bg: #091e3a;
+  --primary-accent: #0284c7;
+  --primary-accent-hover: #0369a1;
+  --primary-accent-light: #f0f9ff;
+  --primary-text-accent: #0284c7;
+  --primary-accent-text: #ffffff;
+  --terminal-accent: #38bdf8;
+  --terminal-text: #bae6fd;
+  --main-bg: #f0f9ff;
+  --card-bg: #ffffff;
+  --border-color: #bae6fd;
+}
+
+body.theme-green {
+  /* Forest Green: Dark jade with mint green highlights */
+  --primary-bg: #041a10;
+  --primary-accent: #16a34a;
+  --primary-accent-hover: #15803d;
+  --primary-accent-light: #f0fdf4;
+  --primary-text-accent: #16a34a;
+  --primary-accent-text: #ffffff;
+  --terminal-accent: #4ade80;
+  --terminal-text: #bbf7d0;
+  --main-bg: #f0fdf4; /* mint white background */
+  --card-bg: #ffffff;
+  --border-color: #bbf7d0;
+}
+
+body.theme-purple {
+  /* Purple: Royal violet tones */
+  --primary-bg: #1e1b4b;
+  --primary-accent: #7c3aed;
+  --primary-accent-hover: #6d28d9;
+  --primary-accent-light: #f5f3ff;
+  --primary-text-accent: #7c3aed;
+  --primary-accent-text: #ffffff;
+  --terminal-accent: #c084fc;
+  --terminal-text: #e9d5ff;
+  --main-bg: #f5f3ff; /* soft lavender background */
+  --card-bg: #ffffff;
+  --border-color: #ddd6fe;
+}
+
+body.theme-orange {
+  /* Sunset Orange: Chocolate-brown sidebar with warm orange buttons */
+  --primary-bg: #2d1500;
+  --primary-accent: #ea580c;
+  --primary-accent-hover: #ca5a04;
+  --primary-accent-light: #fff7ed;
+  --primary-text-accent: #ea580c;
+  --primary-accent-text: #ffffff;
+  --terminal-accent: #ffedd5;
+  --terminal-text: #fed7aa;
+  --main-bg: #fff7ed; /* soft warm orange/cream tint */
+  --card-bg: #ffffff;
+  --border-color: #fed7aa;
+}
+
+@theme {
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  
+  --color-primary: #004ac6;
+  --color-on-background: #0b1c30;
+  --color-surface: #f8f9ff;
+  --color-surface-container: #e5eeff;
+  --color-surface-container-low: #eff4ff;
+  --color-surface-container-lowest: #ffffff;
+  
+  --color-primary-bg: var(--primary-bg);
+  --color-primary-accent: var(--primary-accent);
+  --color-primary-accent-hover: var(--primary-accent-hover);
+  --color-primary-accent-light: var(--primary-accent-light);
+  --color-primary-text-accent: var(--primary-text-accent);
+  --color-terminal-accent: var(--terminal-accent);
+  --color-terminal-text: var(--terminal-text);
+}
+
+.theme-bg-sidebar {
+  background-color: var(--primary-bg) !important;
+}
+
+.theme-bg-accent {
+  background-color: var(--primary-accent) !important;
+}
+
+.theme-bg-accent-hover:hover {
+  background-color: var(--primary-accent-hover) !important;
+}
+
+.theme-bg-accent-light {
+  background-color: var(--primary-accent-light) !important;
+}
+
+.theme-text-accent {
+  color: var(--primary-text-accent) !important;
+}
+
+.theme-border-accent {
+  border-color: var(--primary-accent) !important;
+}
+
+.theme-terminal-accent {
+  color: var(--terminal-accent) !important;
+}
+
+.theme-terminal-text {
+  color: var(--terminal-text) !important;
+}
+
+.theme-sidebar-link {
+  color: var(--sidebar-text) !important;
+  transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.theme-sidebar-link:hover {
+  background-color: var(--sidebar-hover-bg) !important;
+  color: var(--sidebar-text-hover) !important;
+}
+
+.theme-sidebar-text {
+  color: var(--sidebar-text) !important;
+}
+
+.theme-app-bg {
+  background-color: var(--main-bg) !important;
+}
+
+.theme-card-bg {
+  background-color: var(--card-bg) !important;
+}
+
+.theme-border {
+  border-color: var(--border-color) !important;
+}
+
+.theme-text-accent-contrast {
+  color: var(--primary-accent-text) !important;
+}
+
+@layer utilities {
+  .fixed-column-first {
+    position: sticky;
+    left: 0;
+    z-index: 10;
+  }
+  
+  .matrix-input:focus {
+    background-color: #f8f9ff;
+    outline: 2px solid #004ac6;
+    outline-offset: -2px;
+    box-shadow: none;
+  }
+  
+  .zebra-row:nth-child(even) {
+    background-color: #f8f9ff;
+  }
+  
+  .zebra-row:hover {
+    background-color: #e5eeff;
+  }
+
+  /* Custom subtle browser animations for smooth interactive feedback */
+  @keyframes slideIn {
+    from {
+      transform: translateY(1rem);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  .animate-slide-in {
+    animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  .animate-fade-in {
+    animation: fadeIn 0.25s ease-out forwards;
+  }
+
+  /* Custom scrollbar matching original layout files exactly */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    background: #f8f9ff;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    background: #c3c6d7;
+    border-radius: 9999px;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    background: #737686;
+  }
+}
+
+/* Custom print styles to ensure that report card prints beautifully in physical form */
+@media print {
+  body {
+    background-color: #ffffff;
+    color: #000000;
+  }
+  
+  header, aside, .print\:hidden, button, select, input {
+    display: none !important;
+  }
+  
+  main {
+    margin-left: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  #terminal-reports-view-container {
+    padding: 0 !important;
+  }
+}

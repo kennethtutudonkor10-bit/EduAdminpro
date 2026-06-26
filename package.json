@@ -1,0 +1,80 @@
+{
+  "name": "eduadmin-pro",
+  "private": true,
+  "version": "0.0.0",
+  "description": "School management system for Ghanaian schools",
+  "author": "Kenneth Donkor-Tutu <kennethdonkortutu@gmail.com>",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "tsx server.ts",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --external:better-sqlite3 --external:vite --sourcemap --outfile=dist/server.cjs",
+    "start": "node dist/server.cjs",
+    "lint": "tsc --noEmit",
+    "icons": "node scripts/generate-icons.cjs",
+    "electron:dev": "npm run build && node scripts/launch-electron.cjs",
+    "electron:build:win": "npm run icons && npm run build && electron-builder --win",
+    "electron:build:mac": "npm run icons && npm run build && electron-builder --mac"
+  },
+  "build": {
+    "appId": "com.eduadmin.pro",
+    "productName": "EduAdmin Pro",
+    "copyright": "Copyright © 2026 Kenneth Donkor-Tutu. All rights reserved.",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*"
+    ],
+    "extraResources": [
+      { "from": "dist", "to": "dist" },
+      { "from": "node_modules/better-sqlite3", "to": "node_modules/better-sqlite3" },
+      { "from": "node_modules/bindings", "to": "node_modules/bindings" },
+      { "from": "node_modules/file-uri-to-path", "to": "node_modules/file-uri-to-path" }
+    ],
+    "win": {
+      "target": "nsis",
+      "requestedExecutionLevel": "asInvoker",
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "shortcutName": "EduAdmin Pro",
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "deleteAppDataOnUninstall": true
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "assets/icon.icns"
+    }
+  },
+  "dependencies": {
+    "@google/genai": "^2.4.0",
+    "@tailwindcss/vite": "^4.1.14",
+    "@vitejs/plugin-react": "^5.0.4",
+    "better-sqlite3": "^12.11.1",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
+    "lucide-react": "^0.546.0",
+    "motion": "^12.23.24",
+    "react": "^19.0.1",
+    "react-dom": "^19.0.1",
+    "react-is": "^19.2.7",
+    "recharts": "^3.8.1",
+    "vite": "^6.2.3"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.14.0",
+    "autoprefixer": "^10.4.21",
+    "electron": "^33.4.11",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.25.0",
+    "tailwindcss": "^4.1.14",
+    "tsx": "^4.21.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.3"
+  }
+}

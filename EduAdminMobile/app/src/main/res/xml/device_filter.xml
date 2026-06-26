@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    USB device filter for the biometric fingerprint scanner.
+
+    HOW TO FIND YOUR SCANNER'S IDS
+    ─────────────────────────────────────────────────────────────────────────────
+    1. Plug the USB OTG scanner into the Android device.
+    2. Run:  adb shell "cat /sys/bus/usb/devices/*/idVendor" to list vendor IDs
+             adb shell "cat /sys/bus/usb/devices/*/idProduct" to list product IDs
+       Or on Windows: Device Manager → Universal Serial Bus devices → Properties → Details → Hardware IDs
+    3. vendor-id and product-id below are DECIMAL integers (not hex).
+       Convert hex → decimal:  0x0483 = 1155,  0x5740 = 22336
+    ─────────────────────────────────────────────────────────────────────────────
+
+    Common fingerprint scanner chipsets:
+        Egis Technology (ELAN):      vendor-id="6408"
+        DigitalPersona (Synaptics):  vendor-id="1111"
+        FPC (Fingerprint Cards):     vendor-id="7463"
+        Suprema:                     vendor-id="5760"
+
+    Replace the placeholder values below with your actual device IDs.
+-->
+<resources>
+    <usb-device vendor-id="0000" product-id="0000" />
+</resources>

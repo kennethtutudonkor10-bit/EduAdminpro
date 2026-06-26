@@ -1,0 +1,10 @@
+<resources>
+    <!-- Base application theme. The Compose MaterialTheme() call in MainActivity
+         provides all dynamic colour/typography — this XML theme is only the
+         Activity window chrome (status bar colour, splash background). -->
+    <style name="Theme.EduAdminMobile" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">#FF1E3A5F</item>
+        <item name="android:navigationBarColor">#FF1E3A5F</item>
+        <item name="android:windowBackground">#FFF1F5F9</item>
+    </style>
+</resources>

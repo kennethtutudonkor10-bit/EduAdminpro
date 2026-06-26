@@ -1,0 +1,6 @@
+{
+  "name": "EduAdmin Pro",
+  "description": "An academic gradebook and school database system with real-time continuous assessment and terminal controls.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
