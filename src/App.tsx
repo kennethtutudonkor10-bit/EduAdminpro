@@ -54,18 +54,10 @@ import AIAgentConsoleView from './components/AIAgentConsoleView';
 import EulaModal from './components/EulaModal';
 
 import { billingService, StorePurchaseStatus } from './lib/billingService';
-
-// Fire-and-forget DB sync helpers — localStorage remains the immediate backup
-const dbPost = (url: string, data: object) => {
-  fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  }).catch(() => {});
-};
-const dbDelete = (url: string) => {
-  fetch(url, { method: 'DELETE' }).catch(() => {});
-};
+// Reliable write-through to the local DB: retries + an offline outbox so a
+// transient failure can no longer silently drop an edit. localStorage stays the
+// immediate cache. dbPost/dbDelete keep the same call signatures as before.
+import { dbPost, dbDelete, startSync, onSyncStatus } from './lib/syncQueue';
 
 interface Toast {
   id: number;
@@ -380,6 +372,21 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('edu_admin_attendance_records', JSON.stringify(attendanceRecords));
   }, [attendanceRecords]);
+
+  // ── Background DB sync: retry queued writes, surface only on state change ────
+  useEffect(() => {
+    const stop = startSync();
+    let prevPending = 0;
+    const off = onSyncStatus((pending) => {
+      if (pending > 0 && prevPending === 0) {
+        triggerToast('Saved locally — syncing to the database when reachable…', 'info');
+      } else if (pending === 0 && prevPending > 0) {
+        triggerToast('All changes synced to the database.', 'success');
+      }
+      prevPending = pending;
+    });
+    return () => { stop(); off(); };
+  }, []);
 
   // ── DB startup: load persisted data, seed if empty ──────────────────────────
   useEffect(() => {
