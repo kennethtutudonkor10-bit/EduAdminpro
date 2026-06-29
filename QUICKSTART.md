@@ -73,6 +73,26 @@ npm start
 
 Then open `http://<your-machine-ip>:3000` on any device on the same network.
 
+### Restricting LAN access (optional)
+
+By default the standalone server is open to every device on the LAN. To require a
+shared key from other machines, set one — the local app is always trusted:
+
+```bash
+# Option 1: environment variable
+EDUADMIN_API_KEY=choose-a-strong-key npm start
+
+# Option 2: stored setting (from the same machine, which is always trusted)
+curl -X POST http://localhost:3000/api/db/settings \
+  -H "Content-Type: application/json" \
+  -d '{"key": "api_key", "value": "choose-a-strong-key"}'
+```
+
+Once a key is set, LAN clients must send it as an `X-EduAdmin-Key` header (the
+Android companion app already does). `/api/health` and the pairing handshake stay
+open. The **packaged desktop app binds to `127.0.0.1` only**, so its database is
+never exposed to the LAN regardless of this setting.
+
 ---
 
 ## Database

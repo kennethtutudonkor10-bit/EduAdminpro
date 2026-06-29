@@ -42,11 +42,44 @@ dotenv.config();
 
 const app = express();
 const PORT = parseInt(process.env.PORT || "3000", 10);
+// Bind host. The packaged desktop app sets HOST=127.0.0.1 (electron/main.cjs) so the
+// database is never exposed to the LAN; standalone server mode defaults to 0.0.0.0
+// for intentional school-LAN access.
+const HOST = process.env.HOST || "0.0.0.0";
 
 // USER_DATA comes from Electron main.cjs; fallback to cwd for standalone server mode
 const userDataPath = process.env.USER_DATA || path.join(process.cwd(), "data");
 initDb(userDataPath);
 
+// ── API access guard ─────────────────────────────────────────────────────────
+// The local desktop app (loopback) is always trusted. For other machines on the
+// LAN, an optional shared key locks down /api/*: set EDUADMIN_API_KEY (env) or the
+// `api_key` setting, and clients must then send a matching X-EduAdmin-Key header
+// (the Android app already does). If no key is configured, the API stays open for
+// backward compatibility — admins opt into hardening by setting a key.
+const PUBLIC_API_PATHS = new Set(["/api/health", "/api/v1/system/handshake"]);
+
+function isLoopback(req: express.Request): boolean {
+  const addr = req.socket.remoteAddress || "";
+  return addr === "127.0.0.1" || addr === "::1" || addr === "::ffff:127.0.0.1";
+}
+
+function configuredApiKey(): string | null {
+  return process.env.EDUADMIN_API_KEY || getSetting("api_key") || null;
+}
+
+app.use((req, res, next) => {
+  if (!req.path.startsWith("/api")) return next();      // static SPA / assets
+  if (PUBLIC_API_PATHS.has(req.path)) return next();     // liveness + pairing handshake
+  if (isLoopback(req)) return next();                    // local desktop app
+  const key = configuredApiKey();
+  if (!key) return next();                               // open LAN (no key configured)
+  if (req.get("X-EduAdmin-Key") === key) return next();  // authorized LAN client
+  return res.status(401).json({ error: "Unauthorized: a valid X-EduAdmin-Key is required." });
+});
+
+// Body parsing runs after the access guard so unauthorized LAN requests are
+// rejected before their payload is ever parsed.
 app.use(express.json({ limit: "50mb" }));
 
 // Initialize Gemini Client safely — reads from env first, then falls back to DB settings
@@ -975,7 +1008,7 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  app.listen(PORT, HOST, () => {
     console.log("SERVER_READY");
   });
 }

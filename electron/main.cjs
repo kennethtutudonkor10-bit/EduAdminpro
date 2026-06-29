@@ -76,6 +76,8 @@ function startServer(port) {
         ...process.env,
         ELECTRON_RUN_AS_NODE: "1",
         PORT: String(port),
+        // Loopback-only: the packaged app's database is never exposed to the LAN.
+        HOST: "127.0.0.1",
         NODE_ENV: "production",
         USER_DATA: app.getPath("userData"),
         DIST_PATH: app.isPackaged
