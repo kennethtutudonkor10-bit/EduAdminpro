@@ -184,11 +184,33 @@ Detailed design is a separate document; the guardrails:
 
 ---
 
-## 8. Open questions to revisit
-- Which mobile backend wins, and can the desktop LAN API be retired entirely?
+## 8. Decision log
+
+### D-001 — Mobile backend: LAN-paired, no cloud (2026-06-29)
+**Decision:** The mobile companion talks to the **desktop Express server over the
+LAN** (the pairing flow), not to Supabase. The Supabase path is removed.
+
+**Why:** "Free approach." The desktop already runs the Express + SQLite server on
+the school's PC, so the LAN backend costs nothing, needs no accounts, and works with
+no internet — consistent with the offline-first thesis. Supabase adds a hosted cloud
+dependency (accounts, free-tier limits, connectivity) and currently ships a
+**hardcoded anon key** in `SupabaseClientProvider.kt`. It also left the app in a
+**non-compiling, half-migrated state** (`ServerPairingScreen` calls
+`NetworkConfig.getSavedBaseUrl()`, which the Supabase-version `NetworkConfig` does
+not define). Choosing LAN is both the free option and the path back to a building app.
+
+**Consequence:** Execute the cutover in `EduAdminMobile/MIGRATION_LAN.md`. When the
+paid connected tier is built (Phase 3), revisit whether a thin cloud relay is needed
+for parent-facing delivery — but the on-site SQLite stays the source of truth.
+
+---
+
+## 9. Open questions to revisit
 - Will schools accept per-term MoMo billing, and at what number?
 - Bring-your-own-Hubtel vs. bundled SMS allowance — which does the market prefer?
 - Is the realistic ceiling a sustainable solo business, and is that the goal?
+- When the paid tier arrives, does parent delivery need a cloud relay, or can it ride
+  the school's own Hubtel credentials straight from the desktop?
 
 ---
 

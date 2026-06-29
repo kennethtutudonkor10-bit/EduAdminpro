@@ -1,5 +1,9 @@
 package com.eduadmin.pro.data.remote
 
+import android.content.Context
+import android.content.SharedPreferences
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -7,81 +11,111 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 
-// ── Token store ────────────────────────────────────────────────────────────
-// Holds the Supabase access token. Set by MainActivity on warm start (existing
-// session) or by LoginScreen after a successful signInWith(Email) call.
-// WorkManager sync workers read this to attach the Bearer header.
+// ── Optional shared key ──────────────────────────────────────────────────────
+// EduAdmin Pro is free and offline-first: the mobile app pairs with the desktop
+// Express server over the school LAN. The desktop server currently accepts
+// unauthenticated LAN calls, so this is blank by default. If/when the server adds
+// the documented X-EduAdmin-Key middleware, set this after pairing and every
+// request will carry it.
 object TokenStore {
-    @Volatile var jwt: String = ""
+    @Volatile var apiKey: String = ""
 }
 
-// ── OkHttp interceptor: Supabase auth headers ─────────────────────────────
-// Every request must carry:
-//   apikey        — the project's anon key (identifies the project)
-//   Authorization — the user's bearer token (identifies the user within RLS)
-private val authInterceptor = Interceptor { chain ->
-    val token = TokenStore.jwt
-    val request = chain.request().newBuilder()
-        .header("apikey", SupabaseClientProvider.ANON_KEY)
-        .header("X-EduAdmin-Client", "android")
-        .apply { if (token.isNotBlank()) header("Authorization", "Bearer $token") }
-        .build()
-    chain.proceed(request)
-}
-
-private val loggingInterceptor = HttpLoggingInterceptor().apply {
-    level = HttpLoggingInterceptor.Level.BODY
-}
-
-private fun buildLiveClient(): OkHttpClient =
-    OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .addInterceptor(authInterceptor)
-        .addInterceptor(loggingInterceptor)
-        .retryOnConnectionFailure(true)
-        .build()
-
-// ── NetworkConfig singleton ────────────────────────────────────────────────
-// Points Retrofit at the Supabase PostgREST endpoint. Replaces the old
-// dynamic pairing flow — the base URL is now constant, derived from the
-// production Supabase project URL in SupabaseClientProvider.
-//
-// TODO: Migrate EduAdminApiService endpoints from the legacy /api/v1/...
-// paths to Supabase REST paths (e.g. GET /rest/v1/students?select=*).
-// Until that migration is complete, endpoints that require Supabase-specific
-// data should use SupabaseClientProvider.client.postgrest[...] directly.
+// ── NetworkConfig ────────────────────────────────────────────────────────────
+// Points Retrofit at the desktop server the user paired with on the
+// ServerPairingScreen. The base URL (http://<pc-ip>:<port>/) is persisted in
+// EncryptedSharedPreferences so it survives restarts. No cloud, no accounts.
 object NetworkConfig {
+
+    private const val PREFS        = "eduadmin_network"
+    private const val KEY_BASE_URL = "base_url"
 
     @Volatile
     var apiService: EduAdminApiService? = null
         private set
 
-    // Call once after a successful Supabase sign-in (TokenStore.jwt must be
-    // populated before calling this so the auth interceptor has a token).
-    fun initialize() {
-        val baseUrl = "${SupabaseClientProvider.SUPABASE_URL}/rest/v1/"
-        apiService = Retrofit.Builder()
-            .baseUrl(baseUrl)
-            .client(buildLiveClient())
+    @Volatile
+    private var baseUrl: String? = null
+
+    private fun prefs(context: Context): SharedPreferences {
+        val masterKey = MasterKey.Builder(context)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+        return EncryptedSharedPreferences.create(
+            context,
+            PREFS,
+            masterKey,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
+    }
+
+    private fun normalize(url: String): String = if (url.endsWith("/")) url else "$url/"
+
+    /** The saved paired-server base URL, or null if the device has never paired. */
+    fun getSavedBaseUrl(context: Context): String? =
+        baseUrl ?: prefs(context).getString(KEY_BASE_URL, null)?.also { baseUrl = it }
+
+    /** Persists the paired URL and (re)builds the live Retrofit service. */
+    fun saveBaseUrl(context: Context, url: String) {
+        val normalized = normalize(url)
+        prefs(context).edit().putString(KEY_BASE_URL, normalized).apply()
+        baseUrl = normalized
+        apiService = buildService(normalized)
+    }
+
+    /** Warm-start: rebuild the service from the saved URL. No-op if never paired. */
+    fun initialize(context: Context) {
+        val url = getSavedBaseUrl(context) ?: return
+        apiService = buildService(url)
+    }
+
+    /** Forget the paired server (used by "Repair connection"). */
+    fun clear(context: Context) {
+        prefs(context).edit().remove(KEY_BASE_URL).apply()
+        baseUrl = null
+        apiService = null
+    }
+
+    /**
+     * Builds a throwaway service pointed at [url] for the pairing handshake,
+     * before the URL is committed. The ServerPairingScreen calls
+     * performServerHandshake() on this to confirm it's really an EduAdmin server.
+     */
+    fun buildPairingService(url: String): EduAdminApiService = buildService(normalize(url))
+
+    private fun buildService(url: String): EduAdminApiService =
+        Retrofit.Builder()
+            .baseUrl(url)
+            .client(buildClient())
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(EduAdminApiService::class.java)
-    }
 
-    // Sign-out: discard the in-memory token and Retrofit instance.
-    // Call SupabaseClientProvider.client.auth.signOut() (suspend) alongside this.
-    fun clear() {
-        apiService = null
-        TokenStore.jwt = ""
+    private fun buildClient(): OkHttpClient {
+        val authInterceptor = Interceptor { chain ->
+            val builder = chain.request().newBuilder()
+                .header("X-EduAdmin-Client", "android")
+            if (TokenStore.apiKey.isNotBlank()) {
+                builder.header("X-EduAdmin-Key", TokenStore.apiKey)
+            }
+            chain.proceed(builder.build())
+        }
+        val logging = HttpLoggingInterceptor().apply {
+            level = HttpLoggingInterceptor.Level.BODY
+        }
+        return OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .addInterceptor(authInterceptor)
+            .addInterceptor(logging)
+            .retryOnConnectionFailure(true)
+            .build()
     }
 }
 
-// ── Convenience accessor ───────────────────────────────────────────────────
+// ── Convenience accessor ─────────────────────────────────────────────────────
 val apiService: EduAdminApiService
     get() = NetworkConfig.apiService
-        ?: error("NetworkConfig not initialized — call NetworkConfig.initialize() after sign-in")
-
-val retrofit: Retrofit
-    get() = error("Use NetworkConfig.apiService instead of the bare retrofit instance")
+        ?: error("NetworkConfig not initialized — pair with a server first")
