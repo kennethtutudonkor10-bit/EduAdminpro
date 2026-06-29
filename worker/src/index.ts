@@ -36,7 +36,7 @@ export default {
 
     let body: RemarkRequest;
     try {
-      body = await request.json<RemarkRequest>();
+      body = (await request.json()) as RemarkRequest;
     } catch {
       return new Response(
         JSON.stringify({ error: "Invalid JSON body" }),
@@ -82,7 +82,7 @@ export default {
       );
     }
 
-    const data = await geminiRes.json<GeminiResponse>();
+    const data = (await geminiRes.json()) as GeminiResponse;
     const remark = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
 
     if (!remark) {

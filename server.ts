@@ -277,7 +277,7 @@ After identifying matching records, call proposeStudentRemarks() or proposeGrade
     const conversationHistory: any[] = [{ role: "user", parts: [{ text: userMessageContent }] }];
     
     let currentResponse = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-2.5-flash",
       contents: conversationHistory,
       config: {
         systemInstruction: "You are an active, autonomous assistant for EduAdmin Pro. You manage core school registries, fees ledger, and the master score database. You inspect tables using read tools, evaluate profiles, and register edits strictly using the propose tools (proposeStudentRemarks or proposeGradeCurve). Keep all proposals aligned with safety. Never do direct calculations. Let the system execute proposals.",
@@ -372,7 +372,7 @@ After identifying matching records, call proposeStudentRemarks() or proposeGrade
 
       // Query Gemini again with tool output
       currentResponse = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+        model: "gemini-2.5-flash",
         contents: conversationHistory,
         config: {
           tools: [{ functionDeclarations: databaseTools.functionDeclarations }]
