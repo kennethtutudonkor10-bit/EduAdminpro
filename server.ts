@@ -20,8 +20,10 @@ import {
   setSetting,
   queueNotification,
   getPendingNotifications,
+  getAllNotifications,
   markNotificationDispatched,
   markNotificationFailed,
+  markNotificationRead,
   getAllStaff,
   upsertStaff,
   deleteStaff,
@@ -917,26 +919,24 @@ app.get("/api/v1/biometrics/days-present/:studentId", (req, res) => {
 //
 app.get("/api/v1/notifications/inbox", (req, res) => {
   const recipient = (req.query.recipient as string || "").trim().toLowerCase();
-  const all = getPendingNotifications() as any[];
+  // Inbox shows full history (read + unread, sent or not) — not just the SMS queue.
+  const all = getAllNotifications() as any[];
   const rows = recipient
     ? all.filter(n => (n.recipientName || "").toLowerCase().includes(recipient))
     : all;
-  // Newest first; add created_at if the DB layer didn't include it
-  const sorted = rows
-    .map(n => ({ ...n, created_at: n.created_at || new Date().toISOString() }))
-    .sort((a, b) => (b.created_at as string).localeCompare(a.created_at as string));
-  res.json(sorted);
+  // getAllNotifications already returns newest-first; expose a simple read flag.
+  res.json(rows.map(n => ({ ...n, read: !!n.readAt })));
 });
 
 // POST /api/v1/notifications/:id/read
-//   Marks a notification as read (sets status to "read" if not yet dispatched).
+//   Marks an inbox message read. This only sets readAt — it never changes the
+//   SMS delivery status, so reading a message in the app cannot remove it from
+//   (or wrongly satisfy) the outbound SMS queue.
 //
 app.post("/api/v1/notifications/:id/read", (req, res) => {
   const { id } = req.params;
-  // Re-use the dispatched marker so the queue worker skips it on next pass.
-  // "dispatched" is close enough for inbox-read semantics without a schema change.
   try {
-    markNotificationDispatched(Number(id));
+    markNotificationRead(Number(id));
     res.json({ ok: true });
   } catch (_) {
     res.json({ ok: false });
