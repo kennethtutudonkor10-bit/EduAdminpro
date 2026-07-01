@@ -1,7 +1,14 @@
 name = "eduadmin-ai-worker"
 main = "src/index.ts"
 compatibility_date = "2024-06-01"
+workers_dev = true
 
-# Deploy: npx wrangler deploy
-# Set the secret: npx wrangler secret put GEMINI_API_KEY
-# Then paste your Google AI Studio key when prompted.
+# GEMINI_API_KEY is a secret, not a plaintext var — set it with:
+#   npx wrangler secret put GEMINI_API_KEY
+# (paste your Google AI Studio key when prompted).
+#
+# Deploy:
+#   cd worker && npm install && npm run deploy
+#
+# Local dev:
+#   cd worker && npm run dev
