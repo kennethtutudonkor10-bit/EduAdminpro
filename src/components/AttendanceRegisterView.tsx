@@ -53,9 +53,6 @@ export default function AttendanceRegisterView({
   const [localAttendance, setLocalAttendance] = useState<Record<string, 'Present' | 'Absent'>>({});
   const [currentCohortKey, setCurrentCohortKey] = useState('');
 
-  // EduAdmin Pro is free — all installations are always premium.
-  const isPremium = true;
-
   // IoT Biometric Simulator States
   const [selectedIoTStudentId, setSelectedIoTStudentId] = useState<string>('');
   const [connectivityMode, setConnectivityMode] = useState<'wifi' | 'ble'>('wifi');
@@ -544,22 +541,10 @@ export default function AttendanceRegisterView({
                   <Fingerprint className="w-4 h-4 text-emerald-400" />
                   Biometric Identity Verification Terminal
                 </span>
-                {isPremium ? (
-                  <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2.5 py-0.5 rounded-full font-mono flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse inline-block"></span>
-                    Hardware: Ready
-                  </span>
-                ) : licenseTier ? (
-                  <span className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2.5 py-0.5 rounded-full font-mono flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 bg-amber-400 rounded-full inline-block"></span>
-                    Evaluation Mode
-                  </span>
-                ) : (
-                  <span className="text-[10px] bg-slate-700/50 text-slate-400 border border-slate-600/40 px-2.5 py-0.5 rounded-full font-mono flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 bg-slate-500 rounded-full inline-block"></span>
-                    Checking license...
-                  </span>
-                )}
+                <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2.5 py-0.5 rounded-full font-mono flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse inline-block"></span>
+                  Hardware: Ready
+                </span>
               </div>
 
               {classStudents.length === 0 ? (

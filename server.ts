@@ -20,8 +20,10 @@ import {
   setSetting,
   queueNotification,
   getPendingNotifications,
+  getAllNotifications,
   markNotificationDispatched,
   markNotificationFailed,
+  markNotificationRead,
   getAllStaff,
   upsertStaff,
   deleteStaff,
@@ -40,11 +42,44 @@ dotenv.config();
 
 const app = express();
 const PORT = parseInt(process.env.PORT || "3000", 10);
+// Bind host. The packaged desktop app sets HOST=127.0.0.1 (electron/main.cjs) so the
+// database is never exposed to the LAN; standalone server mode defaults to 0.0.0.0
+// for intentional school-LAN access.
+const HOST = process.env.HOST || "0.0.0.0";
 
 // USER_DATA comes from Electron main.cjs; fallback to cwd for standalone server mode
 const userDataPath = process.env.USER_DATA || path.join(process.cwd(), "data");
 initDb(userDataPath);
 
+// ── API access guard ─────────────────────────────────────────────────────────
+// The local desktop app (loopback) is always trusted. For other machines on the
+// LAN, an optional shared key locks down /api/*: set EDUADMIN_API_KEY (env) or the
+// `api_key` setting, and clients must then send a matching X-EduAdmin-Key header
+// (the Android app already does). If no key is configured, the API stays open for
+// backward compatibility — admins opt into hardening by setting a key.
+const PUBLIC_API_PATHS = new Set(["/api/health", "/api/v1/system/handshake"]);
+
+function isLoopback(req: express.Request): boolean {
+  const addr = req.socket.remoteAddress || "";
+  return addr === "127.0.0.1" || addr === "::1" || addr === "::ffff:127.0.0.1";
+}
+
+function configuredApiKey(): string | null {
+  return process.env.EDUADMIN_API_KEY || getSetting("api_key") || null;
+}
+
+app.use((req, res, next) => {
+  if (!req.path.startsWith("/api")) return next();      // static SPA / assets
+  if (PUBLIC_API_PATHS.has(req.path)) return next();     // liveness + pairing handshake
+  if (isLoopback(req)) return next();                    // local desktop app
+  const key = configuredApiKey();
+  if (!key) return next();                               // open LAN (no key configured)
+  if (req.get("X-EduAdmin-Key") === key) return next();  // authorized LAN client
+  return res.status(401).json({ error: "Unauthorized: a valid X-EduAdmin-Key is required." });
+});
+
+// Body parsing runs after the access guard so unauthorized LAN requests are
+// rejected before their payload is ever parsed.
 app.use(express.json({ limit: "50mb" }));
 
 // Initialize Gemini Client safely — reads from env first, then falls back to DB settings
@@ -277,7 +312,7 @@ After identifying matching records, call proposeStudentRemarks() or proposeGrade
     const conversationHistory: any[] = [{ role: "user", parts: [{ text: userMessageContent }] }];
     
     let currentResponse = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-2.5-flash",
       contents: conversationHistory,
       config: {
         systemInstruction: "You are an active, autonomous assistant for EduAdmin Pro. You manage core school registries, fees ledger, and the master score database. You inspect tables using read tools, evaluate profiles, and register edits strictly using the propose tools (proposeStudentRemarks or proposeGradeCurve). Keep all proposals aligned with safety. Never do direct calculations. Let the system execute proposals.",
@@ -372,7 +407,7 @@ After identifying matching records, call proposeStudentRemarks() or proposeGrade
 
       // Query Gemini again with tool output
       currentResponse = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+        model: "gemini-2.5-flash",
         contents: conversationHistory,
         config: {
           tools: [{ functionDeclarations: databaseTools.functionDeclarations }]
@@ -917,26 +952,24 @@ app.get("/api/v1/biometrics/days-present/:studentId", (req, res) => {
 //
 app.get("/api/v1/notifications/inbox", (req, res) => {
   const recipient = (req.query.recipient as string || "").trim().toLowerCase();
-  const all = getPendingNotifications() as any[];
+  // Inbox shows full history (read + unread, sent or not) — not just the SMS queue.
+  const all = getAllNotifications() as any[];
   const rows = recipient
     ? all.filter(n => (n.recipientName || "").toLowerCase().includes(recipient))
     : all;
-  // Newest first; add created_at if the DB layer didn't include it
-  const sorted = rows
-    .map(n => ({ ...n, created_at: n.created_at || new Date().toISOString() }))
-    .sort((a, b) => (b.created_at as string).localeCompare(a.created_at as string));
-  res.json(sorted);
+  // getAllNotifications already returns newest-first; expose a simple read flag.
+  res.json(rows.map(n => ({ ...n, read: !!n.readAt })));
 });
 
 // POST /api/v1/notifications/:id/read
-//   Marks a notification as read (sets status to "read" if not yet dispatched).
+//   Marks an inbox message read. This only sets readAt — it never changes the
+//   SMS delivery status, so reading a message in the app cannot remove it from
+//   (or wrongly satisfy) the outbound SMS queue.
 //
 app.post("/api/v1/notifications/:id/read", (req, res) => {
   const { id } = req.params;
-  // Re-use the dispatched marker so the queue worker skips it on next pass.
-  // "dispatched" is close enough for inbox-read semantics without a schema change.
   try {
-    markNotificationDispatched(Number(id));
+    markNotificationRead(Number(id));
     res.json({ ok: true });
   } catch (_) {
     res.json({ ok: false });
@@ -975,7 +1008,7 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  app.listen(PORT, HOST, () => {
     console.log("SERVER_READY");
   });
 }

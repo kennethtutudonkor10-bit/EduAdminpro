@@ -30,3 +30,7 @@ release/*.zip
 # IDE
 .idea/
 *.swp
+
+# Cloudflare Wrangler local state
+.wrangler/
+**/.wrangler/

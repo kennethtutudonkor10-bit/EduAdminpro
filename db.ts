@@ -73,7 +73,8 @@ function migrate(db: Database.Database): void {
       metadata       TEXT,
       status         TEXT NOT NULL DEFAULT 'pending',
       createdAt      TEXT NOT NULL DEFAULT (datetime('now')),
-      dispatchedAt   TEXT
+      dispatchedAt   TEXT,
+      readAt         TEXT
     );
 
     CREATE TABLE IF NOT EXISTS staff_records (
@@ -118,9 +119,20 @@ function migrate(db: Database.Database): void {
     );
   `);
 
+  // Idempotent column adds for databases created before a column existed.
+  ensureColumn(db, "notification_queue", "readAt", "TEXT");
+
   // EduAdmin Pro is free and open-source. All databases start in premium state.
   db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('tier', 'premium')").run();
   db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('license_status', 'active')").run();
+}
+
+/** Adds a column to an existing table only if it isn't already present. */
+function ensureColumn(db: Database.Database, table: string, column: string, type: string): void {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (!cols.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  }
 }
 
 // ── Students ───────────────────────────────────────────────────────────────────
@@ -379,9 +391,24 @@ export function queueNotification(entry: {
   return result.lastInsertRowid as number;
 }
 
+function deserializeNotification(row: any) {
+  return { ...row, metadata: row.metadata ? JSON.parse(row.metadata) : null };
+}
+
+/** SMS outbound queue — only messages not yet dispatched. Drives /dispatch. */
 export function getPendingNotifications() {
   return (getDb().prepare("SELECT * FROM notification_queue WHERE status = 'pending' ORDER BY createdAt ASC").all() as any[])
-    .map((row) => ({ ...row, metadata: row.metadata ? JSON.parse(row.metadata) : null }));
+    .map(deserializeNotification);
+}
+
+/**
+ * Inbox history for the mobile app — every message, regardless of SMS delivery
+ * state, newest first. Read state lives in readAt, kept separate from the SMS
+ * `status` column so reading a message in the app never affects the SMS queue.
+ */
+export function getAllNotifications() {
+  return (getDb().prepare("SELECT * FROM notification_queue ORDER BY createdAt DESC").all() as any[])
+    .map(deserializeNotification);
 }
 
 export function markNotificationDispatched(id: number): void {
@@ -393,6 +420,13 @@ export function markNotificationDispatched(id: number): void {
 export function markNotificationFailed(id: number): void {
   getDb()
     .prepare("UPDATE notification_queue SET status = 'failed' WHERE id = ?")
+    .run(id);
+}
+
+/** Marks an inbox message read without touching its SMS delivery status. */
+export function markNotificationRead(id: number): void {
+  getDb()
+    .prepare("UPDATE notification_queue SET readAt = datetime('now') WHERE id = ?")
     .run(id);
 }
 

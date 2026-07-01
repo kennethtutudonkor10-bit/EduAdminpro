@@ -1,5 +1,9 @@
 export interface Env {
   GEMINI_API_KEY: string;
+  // Optional shared key. When set (via `wrangler secret put WORKER_API_KEY`),
+  // callers must send a matching X-EduAdmin-Key header. Leave unset to keep the
+  // endpoint open. Prevents strangers from spending your Gemini budget.
+  WORKER_API_KEY?: string;
 }
 
 interface RemarkRequest {
@@ -34,9 +38,17 @@ export default {
       return new Response("Method Not Allowed", { status: 405, headers: corsHeaders });
     }
 
+    // Optional shared-key gate — only enforced when WORKER_API_KEY is configured.
+    if (env.WORKER_API_KEY && request.headers.get("X-EduAdmin-Key") !== env.WORKER_API_KEY) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized: a valid X-EduAdmin-Key is required." }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     let body: RemarkRequest;
     try {
-      body = await request.json<RemarkRequest>();
+      body = (await request.json()) as RemarkRequest;
     } catch {
       return new Response(
         JSON.stringify({ error: "Invalid JSON body" }),
@@ -82,7 +94,7 @@ export default {
       );
     }
 
-    const data = await geminiRes.json<GeminiResponse>();
+    const data = (await geminiRes.json()) as GeminiResponse;
     const remark = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
 
     if (!remark) {
