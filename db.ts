@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
+import { initEncryption, encryptField, decryptField, isEncrypted } from "./crypto-store";
 
 let _db: Database.Database | null = null;
 
@@ -13,11 +14,41 @@ function getDb(): Database.Database {
 
 export function initDb(userDataPath: string): void {
   fs.mkdirSync(userDataPath, { recursive: true });
+  initEncryption(userDataPath);
   const dbPath = path.join(userDataPath, "school_data.db");
   _db = new Database(dbPath);
   _db.pragma("journal_mode = WAL");
   _db.pragma("foreign_keys = ON");
   migrate(_db);
+  encryptExistingPii(_db);
+}
+
+// Contact/PII columns encrypted at rest. These are never used in WHERE/JOIN/ORDER.
+const STUDENT_PII = ["photo", "phoneNumber"] as const;
+const STAFF_PII = ["photo", "phoneNumber", "email"] as const;
+
+/** One-time, idempotent migration: encrypt any plaintext PII left by older versions. */
+function encryptExistingPii(db: Database.Database): void {
+  const migrateTable = (table: string, idCol: string, cols: readonly string[]) => {
+    const rows = db.prepare(`SELECT ${idCol}, ${cols.join(", ")} FROM ${table}`).all() as any[];
+    const stmt = db.prepare(`UPDATE ${table} SET ${cols.map((c) => `${c} = @${c}`).join(", ")} WHERE ${idCol} = @__id`);
+    const run = db.transaction((items: any[]) => {
+      for (const r of items) {
+        if (!cols.some((c) => r[c] && !isEncrypted(r[c]))) continue; // nothing to do
+        const patch: any = { __id: r[idCol] };
+        for (const c of cols) patch[c] = encryptField(r[c] ?? null);
+        stmt.run(patch);
+      }
+    });
+    run(rows);
+  };
+  migrateTable("students", "id", STUDENT_PII);
+  migrateTable("staff_records", "staffId", STAFF_PII);
+}
+
+function decryptStudent(row: any) {
+  if (!row) return row;
+  return { ...row, photo: decryptField(row.photo), phoneNumber: decryptField(row.phoneNumber) };
 }
 
 function migrate(db: Database.Database): void {
@@ -157,7 +188,7 @@ function ensureColumn(db: Database.Database, table: string, column: string, type
 // ── Students ───────────────────────────────────────────────────────────────────
 
 export function getAllStudents() {
-  return getDb().prepare("SELECT * FROM students ORDER BY classId, name").all();
+  return (getDb().prepare("SELECT * FROM students ORDER BY classId, name").all() as any[]).map(decryptStudent);
 }
 
 export function upsertStudent(student: {
@@ -169,6 +200,7 @@ export function upsertStudent(student: {
   photo?: string | null;
   phoneNumber?: string | null;
 }) {
+  const row = { photo: null, phoneNumber: null, ...student };
   getDb()
     .prepare(
       `INSERT INTO students (id, name, classId, gender, status, photo, phoneNumber)
@@ -181,11 +213,13 @@ export function upsertStudent(student: {
          photo       = excluded.photo,
          phoneNumber = excluded.phoneNumber`
     )
-    .run({ photo: null, phoneNumber: null, ...student });
+    .run({ ...row, photo: encryptField(row.photo), phoneNumber: encryptField(row.phoneNumber) });
 
-  return getDb()
-    .prepare("SELECT * FROM students WHERE id = ?")
-    .get(student.id);
+  return decryptStudent(
+    getDb()
+      .prepare("SELECT * FROM students WHERE id = ?")
+      .get(student.id)
+  );
 }
 
 export function deleteStudent(id: string) {
@@ -318,9 +352,10 @@ export function seedDatabase(data: {
   );
 
   const run = db.transaction(() => {
-    data.students.forEach((s) =>
-      insertStudent.run({ photo: null, phoneNumber: null, ...s })
-    );
+    data.students.forEach((s) => {
+      const row = { photo: null, phoneNumber: null, ...s };
+      insertStudent.run({ ...row, photo: encryptField(row.photo), phoneNumber: encryptField(row.phoneNumber) });
+    });
     data.scores.forEach((s) =>
       insertScore.run({
         test1: null, test2: null, hw: null, exam: null, remark: null, ...s,
@@ -508,12 +543,12 @@ export function upsertStaff(s: any): void {
     )
     .run({
       staffId: s.staffId, fullName: s.fullName,
-      phoneNumber: s.phoneNumber ?? '', email: s.email ?? '',
+      phoneNumber: encryptField(s.phoneNumber ?? '') ?? '', email: encryptField(s.email ?? '') ?? '',
       dateJoined: s.dateJoined ?? '', employmentStatus: s.employmentStatus ?? 'Active',
       staffCategory: s.staffCategory ?? 'Teaching',
       assignedClass: s.assignedClass ?? null,
       subjectsTaught: s.subjectsTaught ? JSON.stringify(s.subjectsTaught) : null,
-      specificRole: s.specificRole ?? null, photo: s.photo ?? null,
+      specificRole: s.specificRole ?? null, photo: encryptField(s.photo ?? null),
       department: s.department ?? null, isCoordinator: s.isCoordinator ? 1 : 0,
     });
 }
@@ -526,6 +561,9 @@ function deserializeStaff(row: any) {
   if (!row) return row;
   return {
     ...row,
+    phoneNumber: decryptField(row.phoneNumber) ?? '',
+    email: decryptField(row.email) ?? '',
+    photo: decryptField(row.photo),
     isCoordinator: !!row.isCoordinator,
     subjectsTaught: row.subjectsTaught ? JSON.parse(row.subjectsTaught) : undefined,
   };

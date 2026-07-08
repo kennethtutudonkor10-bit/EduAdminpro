@@ -79,11 +79,15 @@ Closed the top "ready for business" gaps identified in review:
 - **Automated tests + CI** — a `vitest` suite (auth hashing, sessions, retry/
   backoff, DB) plus a GitHub Actions workflow running typecheck, tests, and build
   on every push/PR.
+- **Encryption at rest** — identifiable contact PII (student & staff phone
+  numbers, photos, staff email) is encrypted with AES-256-GCM before it touches
+  the database. The key comes from `EDUADMIN_ENCRYPTION_KEY`, or a generated
+  `0600` key file in the data directory. Fields used for search/sort/lookup
+  (names, biometric hashes) stay plaintext so nothing breaks; legacy plaintext
+  rows are migrated in place on startup. Verified: the raw DB/WAL files contain
+  no plaintext phone/photo, only `enc:v1:` ciphertext.
 - **Polish** — version bumped to 1.0.0; browser/app title corrected from the
-  scaffold default; `.env.example` documents the new auth variables.
-
-**Still outstanding (agreed follow-up):** encryption of sensitive fields at rest
-(app-level AES-256-GCM) — the one remaining production gap.
+  scaffold default; `.env.example` documents the new auth + encryption variables.
 
 ## Hardening applied earlier (security)
 

@@ -1,12 +1,15 @@
 import { describe, it, expect, beforeAll } from "vitest";
+import Database from "better-sqlite3";
 import fs from "fs";
 import os from "os";
 import path from "path";
 import * as db from "../db";
 
+let dataDir: string;
+
 beforeAll(() => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "eduadmin-test-"));
-  db.initDb(dir);
+  dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "eduadmin-test-"));
+  db.initDb(dataDir);
 });
 
 describe("users", () => {
@@ -67,5 +70,18 @@ describe("students & settings", () => {
   it("stores and reads a setting", () => {
     db.setSetting("school_name", "Demo School");
     expect(db.getSetting("school_name")).toBe("Demo School");
+  });
+
+  it("encrypts student contact PII at rest but reads it back in the clear", () => {
+    db.upsertStudent({ id: "S2", name: "Kofi", classId: "C1", gender: "Male", status: "Enrolled", phoneNumber: "0201234567" });
+    // API read is decrypted
+    const s = (db.getAllStudents() as any[]).find((x) => x.id === "S2");
+    expect(s.phoneNumber).toBe("0201234567");
+    // Raw column on disk is ciphertext, not the phone number
+    const raw = new Database(path.join(dataDir, "school_data.db"))
+      .prepare("SELECT phoneNumber FROM students WHERE id = 'S2'")
+      .get() as { phoneNumber: string };
+    expect(raw.phoneNumber.startsWith("enc:v1:")).toBe(true);
+    expect(raw.phoneNumber).not.toContain("0201234567");
   });
 });

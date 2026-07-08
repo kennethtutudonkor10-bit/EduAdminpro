@@ -8,6 +8,13 @@ coverage/
 .env*
 !.env.example
 
+# Local database, WAL sidecars, and the field-encryption key — never commit
+data/
+*.db
+*.db-wal
+*.db-shm
+.enc_key
+
 # Android / Gradle
 .gradle/
 local.properties

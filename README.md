@@ -55,6 +55,14 @@ Every API request requires authentication. Users have one of two roles:
 The Android companion app authenticates with a shared machine key
 (`EDUADMIN_API_KEY`, sent as `X-EduAdmin-Key`).
 
+## Data protection
+
+Contact PII — student and staff phone numbers, photos, and staff email — is
+encrypted at rest with AES-256-GCM. Provide the key via `EDUADMIN_ENCRYPTION_KEY`
+(recommended; keep it out of the data directory), or the app generates a
+restricted (`0600`) key file on first run. Fields needed for search and sorting
+(names) remain in the clear.
+
 ## Desktop app & installer
 
 ```bash
