@@ -11,13 +11,16 @@ can take (GitHub settings, deployment, recording).
 
 ---
 
-## 1. OSI license — ✅ DONE
+## 1. OSI license — ❌ NOT PRESENT (removed at maintainer's request)
 
-- Added an OSI-approved [`LICENSE`](LICENSE) (MIT).
-- Reconciled `package.json`: added `"license": "MIT"` and removed the
-  contradictory "All rights reserved" copyright string (the README and
-  QUICKSTART already advertised the project as open-source).
-- README now has a **License** section linking to the file.
+The project is intentionally kept **proprietary**: no OSI `LICENSE` file, and the
+in-app EULA (`src/components/EulaModal.tsx`) is a proprietary, all-rights-reserved
+agreement ("licensed, not sold… non-transferable… no reverse-engineering").
+
+> ⚠️ Eligibility note: many hackathons (this one included, per the "top-5 fails")
+> require an **OSI-approved open-source license** to be eligible. As it stands,
+> EduAdmin Pro does not have one. If the rules require it, add an OSI license and
+> soften the in-app EULA to match before submitting.
 
 ## 2. Public repo — ❌ ACTION NEEDED (blocker)
 

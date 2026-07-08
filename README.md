@@ -60,7 +60,3 @@ locations.
 ## Tech stack
 
 React 19 · TypeScript · Tailwind CSS · Vite · Express · better-sqlite3 · Electron.
-
-## License
-
-Released under the [MIT License](LICENSE). © 2026 Kenneth Donkor-Tutu.
