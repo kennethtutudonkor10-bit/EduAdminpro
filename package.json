@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "description": "School management system for Ghanaian schools",
   "author": "Kenneth Donkor-Tutu <kennethdonkortutu@gmail.com>",
+  "license": "MIT",
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "tsx server.ts",
@@ -18,7 +19,7 @@
   "build": {
     "appId": "com.eduadmin.pro",
     "productName": "EduAdmin Pro",
-    "copyright": "Copyright © 2026 Kenneth Donkor-Tutu. All rights reserved.",
+    "copyright": "Copyright © 2026 Kenneth Donkor-Tutu. Licensed under the MIT License.",
     "directories": {
       "output": "release"
     },

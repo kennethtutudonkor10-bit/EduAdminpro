@@ -68,6 +68,32 @@ function configuredApiKey(): string | null {
   return process.env.EDUADMIN_API_KEY || getSetting("api_key") || null;
 }
 
+// Settings whose values are credentials/PII and must never be handed to an
+// untrusted caller (e.g. a LAN browser when no API key is configured). The
+// trusted desktop app talks over loopback and still receives the real values;
+// everyone else gets a presence marker so the UI can show "configured" without
+// leaking the secret. Kept in sync with SECRET_MASK on the client (src/App.tsx).
+const SECRET_SETTING_KEYS = new Set([
+  "gemini_api_key",
+  "api_key",
+  "hubtel_client_id",
+  "hubtel_client_secret",
+  "webhook_url",
+  "registrar_key",
+  "admin_signature_base64",
+]);
+const SECRET_MASK = "__eduadmin_secret_set__";
+
+// Replaces secret values with SECRET_MASK (when set) so a response never carries
+// the raw credential. Non-secret settings pass through untouched.
+function maskSecretSettings(all: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(all)) {
+    out[k] = SECRET_SETTING_KEYS.has(k) ? (v ? SECRET_MASK : "") : v;
+  }
+  return out;
+}
+
 app.use((req, res, next) => {
   if (!req.path.startsWith("/api")) return next();      // static SPA / assets
   if (PUBLIC_API_PATHS.has(req.path)) return next();     // liveness + pairing handshake
@@ -519,13 +545,18 @@ app.post("/api/db/scores/batch", (req, res) => {
 
 // ── Settings routes ────────────────────────────────────────────────────────────
 
-app.get("/api/db/settings", (_req, res) => {
-  res.json(getAllSettings());
+app.get("/api/db/settings", (req, res) => {
+  // The trusted desktop app (loopback) sees real values; LAN clients get secrets masked.
+  const all = getAllSettings();
+  res.json(isLoopback(req) ? all : maskSecretSettings(all));
 });
 
 app.get("/api/db/settings/:key", (req, res) => {
   const value = getSetting(req.params.key);
   if (value === null) return res.status(404).json({ error: "Setting not found." });
+  if (SECRET_SETTING_KEYS.has(req.params.key) && !isLoopback(req)) {
+    return res.json({ key: req.params.key, value: value ? SECRET_MASK : "" });
+  }
   res.json({ key: req.params.key, value });
 });
 
@@ -980,6 +1011,12 @@ app.post("/api/v1/notifications/:id/read", (req, res) => {
 
 app.get("/api/export", (_req, res) => {
   const data = exportAllData();
+  // A backup file travels (USB, email) — never bake live credentials into it.
+  const safeSettings: Record<string, string> = {};
+  for (const [k, v] of Object.entries(data.settings)) {
+    if (!SECRET_SETTING_KEYS.has(k)) safeSettings[k] = v;
+  }
+  data.settings = safeSettings;
   res.setHeader("Content-Disposition", `attachment; filename="eduadmin-backup-${new Date().toISOString().slice(0, 10)}.json"`);
   res.setHeader("Content-Type", "application/json");
   res.json(data);

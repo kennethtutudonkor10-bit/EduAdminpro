@@ -33,7 +33,7 @@ npm install
 npm run dev
 ```
 
-This starts the Vite dev server with hot module reload. Open `http://localhost:5173` in your browser.
+This starts the Express server with Vite in middleware mode (hot module reload). Open `http://localhost:3000` in your browser (set `PORT` to change it).
 
 ---
 

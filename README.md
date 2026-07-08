@@ -1,9 +1,26 @@
 # EduAdmin Pro
 
-Free, offline-first school administration software for Ghanaian and West African
-schools — student registry, gradebook, attendance, terminal report cards, fees,
-staff directory, an AI admin agent, and parent SMS alerts. Runs as a Windows
-desktop app or a local LAN server; no subscription and no activation code.
+**Free, offline-first school administration software for Ghanaian and West African schools.**
+
+Runs as a Windows desktop app or a local LAN server — no subscription, no
+activation code, and no internet required after install. One tool for the whole
+front office: student registry, gradebook, attendance, terminal report cards,
+fees, staff directory, an AI admin agent, and parent SMS alerts.
+
+> Built for schools with unreliable power and connectivity: all data lives in a
+> local SQLite database, so the app keeps working when the network doesn't.
+
+## Features
+
+- **Student registry** — photo, class, and enrollment tracking
+- **Gradebook** — term-based, with configurable continuous-assessment columns
+- **Attendance** — per-student daily roll with statistics
+- **Report cards** — terminal report generator with single and bulk class printing
+- **Fees** — payment ledger and balance tracking
+- **Staff directory** — with class assignments
+- **AI admin agent** — natural-language Q&A over school data (falls back to a
+  rule-based simulation when no API key is set)
+- **Parent SMS alerts** — Hubtel/SMSGH gateway-ready notification queue
 
 ## Run Locally
 
@@ -43,3 +60,7 @@ locations.
 ## Tech stack
 
 React 19 · TypeScript · Tailwind CSS · Vite · Express · better-sqlite3 · Electron.
+
+## License
+
+Released under the [MIT License](LICENSE). © 2026 Kenneth Donkor-Tutu.

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   LayoutDashboard, 
   Users, 
@@ -203,6 +203,13 @@ export default function App() {
     return localStorage.getItem('edu_admin_webhook_url') || '';
   });
 
+  // Marker the server sends in place of a stored secret (see maskSecretSettings
+  // in server.ts). Never treat it as a real value or persist it back.
+  const SECRET_MASK = '__eduadmin_secret_set__';
+  // Gates the credential auto-persist effects until settings have loaded from the
+  // server, so an empty field on first mount can't overwrite a saved secret.
+  const settingsLoadedRef = useRef(false);
+
   const [currentTheme, setCurrentTheme] = useState<string>(() => {
     return localStorage.getItem('edu_admin_theme') || 'default';
   });
@@ -341,13 +348,17 @@ export default function App() {
   }, [schoolLogo]);
 
   useEffect(() => {
+    if (geminiApiKey === SECRET_MASK) return;
     localStorage.setItem('edu_admin_gemini_key', geminiApiKey);
-    dbPost('/api/db/settings', { key: 'gemini_api_key', value: geminiApiKey });
+    // Don't persist until the initial server load has run, so a blank field on
+    // first mount can't wipe a key that's already stored server-side.
+    if (settingsLoadedRef.current) dbPost('/api/db/settings', { key: 'gemini_api_key', value: geminiApiKey });
   }, [geminiApiKey]);
 
   useEffect(() => {
+    if (webhookUrl === SECRET_MASK) return;
     localStorage.setItem('edu_admin_webhook_url', webhookUrl);
-    dbPost('/api/db/settings', { key: 'webhook_url', value: webhookUrl });
+    if (settingsLoadedRef.current) dbPost('/api/db/settings', { key: 'webhook_url', value: webhookUrl });
   }, [webhookUrl]);
 
   useEffect(() => {
@@ -421,15 +432,20 @@ export default function App() {
           if (savedSettings.school_logo) setSchoolLogo(savedSettings.school_logo);
           if (savedSettings.school_name) setSchoolName(savedSettings.school_name);
           if (savedSettings.registrar_name) setRegistrarName(savedSettings.registrar_name);
-          if (savedSettings.registrar_key) setRegistrarKey(savedSettings.registrar_key);
+          if (savedSettings.registrar_key && savedSettings.registrar_key !== SECRET_MASK) setRegistrarKey(savedSettings.registrar_key);
           if (savedSettings.regional_division) setRegionalDivision(savedSettings.regional_division);
-          if (savedSettings.gemini_api_key) setGeminiApiKey(savedSettings.gemini_api_key);
-          if (savedSettings.webhook_url) setWebhookUrl(savedSettings.webhook_url);
+          // A masked secret means "set on the server but hidden from this client" —
+          // keep whatever is in the field rather than adopting the placeholder.
+          if (savedSettings.gemini_api_key && savedSettings.gemini_api_key !== SECRET_MASK) setGeminiApiKey(savedSettings.gemini_api_key);
+          if (savedSettings.webhook_url && savedSettings.webhook_url !== SECRET_MASK) setWebhookUrl(savedSettings.webhook_url);
           if (savedSettings.terms_accepted === 'true') {
             localStorage.setItem('edu_admin_terms_accepted', 'true');
             setTermsAccepted(true);
           }
         }
+        // Server settings are now applied; credential edits from here on are real
+        // user actions and safe to persist.
+        settingsLoadedRef.current = true;
 
         // Load staff and attendance from DB
         const [staffRes, attendanceRes] = await Promise.all([
