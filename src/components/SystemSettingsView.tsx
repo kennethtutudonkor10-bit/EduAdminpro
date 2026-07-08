@@ -4,6 +4,7 @@
  */
 
 import React, { useState } from 'react';
+import { apiFetch } from '../lib/api';
 import {
   Settings,
   Percent,
@@ -831,11 +832,21 @@ export default function SystemSettingsView({
               </p>
               <button
                 type="button"
-                onClick={() => {
+                onClick={async () => {
+                  // Fetch with the session token (a plain <a href> can't send it),
+                  // then download the response as a blob.
+                  const res = await apiFetch('/api/export');
+                  if (!res.ok) {
+                    onTriggerToast(res.status === 403 ? "Only administrators can export the database." : "Export failed.", "error");
+                    return;
+                  }
+                  const blob = await res.blob();
+                  const url = URL.createObjectURL(blob);
                   const a = document.createElement('a');
-                  a.href = '/api/export';
-                  a.download = '';
+                  a.href = url;
+                  a.download = `eduadmin-backup-${new Date().toISOString().slice(0, 10)}.json`;
                   a.click();
+                  URL.revokeObjectURL(url);
                   onTriggerToast("Database export started — check your downloads folder.", "info");
                   if (onLogActivity) onLogActivity("Data export: full database backup downloaded", "other");
                 }}

@@ -109,7 +109,7 @@ export default function EulaModal({ onAccept }: EulaModalProps) {
 
           <p className="text-xs text-on-surface-variant/60 pt-2 border-t border-outline-variant">
             Copyright &copy; 2026 Kenneth Donkor-Tutu. All rights reserved.<br />
-            EduAdmin Pro v0.0.0 &mdash; School Management System
+            EduAdmin Pro v1.0.0 &mdash; School Management System
           </p>
         </div>
 

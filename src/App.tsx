@@ -14,6 +14,7 @@ import {
   HelpCircle, 
   X,
   ShieldCheck,
+  LogOut,
   CheckCircle,
   AlertCircle,
   Info,
@@ -52,8 +53,10 @@ import FeesTrackerView from './components/FeesTrackerView';
 import AttendanceRegisterView from './components/AttendanceRegisterView';
 import AIAgentConsoleView from './components/AIAgentConsoleView';
 import EulaModal from './components/EulaModal';
+import LoginView from './components/LoginView';
 
 import { billingService, StorePurchaseStatus } from './lib/billingService';
+import { apiFetch, fetchMe, logout as apiLogout, setUnauthorizedHandler, type AuthUser } from './lib/api';
 // Reliable write-through to the local DB: retries + an offline outbox so a
 // transient failure can no longer silently drop an edit. localStorage stays the
 // immediate cache. dbPost/dbDelete keep the same call signatures as before.
@@ -66,6 +69,27 @@ interface Toast {
 }
 
 export default function App() {
+  // ── Authentication gate ───────────────────────────────────────────────────
+  // The whole app is behind a login. `authChecked` avoids a login flash while we
+  // validate an existing token on startup.
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+
+  useEffect(() => {
+    setUnauthorizedHandler(() => setAuthUser(null));
+    (async () => {
+      const me = await fetchMe();
+      setAuthUser(me);
+      setAuthChecked(true);
+    })();
+  }, []);
+
+  const handleLoggedIn = (user: AuthUser) => setAuthUser(user);
+  const handleLogout = async () => {
+    await apiLogout();
+    setAuthUser(null);
+  };
+
   // First-launch EULA gate — blocks the entire UI until the user accepts
   const [termsAccepted, setTermsAccepted] = useState<boolean>(() => {
     return localStorage.getItem('edu_admin_terms_accepted') === 'true';
@@ -400,13 +424,15 @@ export default function App() {
   }, []);
 
   // ── DB startup: load persisted data, seed if empty ──────────────────────────
+  // Runs only once the user is authenticated so requests carry a session token.
   useEffect(() => {
+    if (!authUser) return;
     const load = async () => {
       try {
         const [sRes, scRes, fRes] = await Promise.all([
-          fetch('/api/db/students'),
-          fetch('/api/db/scores'),
-          fetch('/api/db/financial'),
+          apiFetch('/api/db/students'),
+          apiFetch('/api/db/scores'),
+          apiFetch('/api/db/financial'),
         ]);
         if (!sRes.ok) return;
         const [dbStudents, dbScores, dbFinancial] = await Promise.all([
@@ -426,7 +452,7 @@ export default function App() {
           dbPost('/api/db/seed', snap);
         }
         // Load saved settings from DB
-        const settingsRes = await fetch('/api/db/settings');
+        const settingsRes = await apiFetch('/api/db/settings');
         if (settingsRes.ok) {
           const savedSettings: Record<string, string> = await settingsRes.json();
           if (savedSettings.school_logo) setSchoolLogo(savedSettings.school_logo);
@@ -449,8 +475,8 @@ export default function App() {
 
         // Load staff and attendance from DB
         const [staffRes, attendanceRes] = await Promise.all([
-          fetch('/api/db/staff'),
-          fetch('/api/db/attendance'),
+          apiFetch('/api/db/staff'),
+          apiFetch('/api/db/attendance'),
         ]);
         if (staffRes.ok) {
           const dbStaff = await staffRes.json();
@@ -465,7 +491,7 @@ export default function App() {
       }
     };
     load();
-  }, []);
+  }, [authUser]);
 
   const handleAddStaff = (newStaff: StaffRecord) => {
     setStaffRecords(prev => [newStaff, ...prev]);
@@ -974,6 +1000,18 @@ export default function App() {
     );
   };
 
+  // ── Auth gate: validating token, then login, then the app ──────────────────
+  if (!authChecked) {
+    return (
+      <div className="flex items-center justify-center h-screen w-screen bg-[#f8f9ff] text-[#0b1c30]">
+        <div className="animate-pulse text-sm font-semibold tracking-wide">Loading EduAdmin Pro…</div>
+      </div>
+    );
+  }
+  if (!authUser) {
+    return <LoginView onLoggedIn={handleLoggedIn} />;
+  }
+
   return (
     <div className="flex theme-app-bg bg-[#f8f9ff] text-[#0b1c30] font-sans h-screen w-screen overflow-hidden antialiased">
       {!termsAccepted && <EulaModal onAccept={handleAcceptTerms} />}
@@ -1147,6 +1185,22 @@ export default function App() {
 
           <div className="text-[10px] theme-sidebar-text font-semibold px-2">
             Local Time &bull; Active Session
+          </div>
+
+          {/* Signed-in identity + logout */}
+          <div className="flex items-center justify-between gap-2 px-2 pt-2 border-t border-[#38485a]/25">
+            <div className="flex flex-col min-w-0">
+              <span className="text-[10.5px] font-bold text-white truncate">{authUser.fullName || authUser.username}</span>
+              <span className="text-[9.5px] theme-sidebar-text uppercase tracking-wide">{authUser.role}</span>
+            </div>
+            <button
+              onClick={handleLogout}
+              title="Sign out"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10.5px] font-bold text-white bg-white/10 hover:bg-red-500/80 transition-colors shrink-0"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              Sign out
+            </button>
           </div>
         </div>
       </aside>

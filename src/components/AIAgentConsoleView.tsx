@@ -24,6 +24,7 @@ import {
   ChevronLeft
 } from 'lucide-react';
 import { Student, Score, FinancialRecord } from '../types';
+import { apiFetch } from '../lib/api';
 
 interface AIAgentConsoleViewProps {
   students: Student[];
@@ -207,7 +208,7 @@ Report compiled on behalf of: kennethtutudonkor10@gmail.com`;
     setAgentResponseText(null);
 
     try {
-      const response = await fetch("/api/ai-execute", {
+      const response = await apiFetch("/api/ai-execute", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"

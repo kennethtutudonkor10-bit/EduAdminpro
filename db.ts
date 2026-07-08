@@ -117,10 +117,29 @@ function migrate(db: Database.Database): void {
       verificationTag  TEXT NOT NULL DEFAULT 'BIOMETRIC',
       verifiedAt       TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS users (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      username           TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      passwordHash       TEXT NOT NULL,
+      role               TEXT NOT NULL DEFAULT 'teacher',
+      fullName           TEXT NOT NULL DEFAULT '',
+      mustChangePassword INTEGER NOT NULL DEFAULT 0,
+      createdAt          TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS auth_sessions (
+      token     TEXT PRIMARY KEY,
+      userId    INTEGER NOT NULL,
+      createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+      expiresAt TEXT NOT NULL
+    );
   `);
 
   // Idempotent column adds for databases created before a column existed.
   ensureColumn(db, "notification_queue", "readAt", "TEXT");
+  ensureColumn(db, "notification_queue", "attempts", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(db, "notification_queue", "nextAttemptAt", "TEXT");
 
   // EduAdmin Pro is free and open-source. All databases start in premium state.
   db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('tier', 'premium')").run();
@@ -395,10 +414,45 @@ function deserializeNotification(row: any) {
   return { ...row, metadata: row.metadata ? JSON.parse(row.metadata) : null };
 }
 
-/** SMS outbound queue — only messages not yet dispatched. Drives /dispatch. */
+/**
+ * SMS outbound queue — messages awaiting delivery whose backoff window has
+ * elapsed (nextAttemptAt in the past, or never scheduled). Drives /dispatch.
+ */
 export function getPendingNotifications() {
-  return (getDb().prepare("SELECT * FROM notification_queue WHERE status = 'pending' ORDER BY createdAt ASC").all() as any[])
+  return (getDb()
+    .prepare(
+      `SELECT * FROM notification_queue
+       WHERE status = 'pending' AND (nextAttemptAt IS NULL OR nextAttemptAt <= datetime('now'))
+       ORDER BY createdAt ASC`
+    )
+    .all() as any[])
     .map(deserializeNotification);
+}
+
+/** Max delivery attempts before a notification is marked permanently failed. */
+export const MAX_NOTIFICATION_ATTEMPTS = 5;
+
+/**
+ * Records a failed delivery attempt. Below the attempt cap it stays 'pending'
+ * with an exponential-backoff nextAttemptAt; at the cap it becomes 'failed'.
+ * Returns the resulting state so callers can report retry vs. give-up.
+ */
+export function recordNotificationAttempt(id: number): { status: "pending" | "failed"; attempts: number } {
+  const db = getDb();
+  const row = db.prepare("SELECT attempts FROM notification_queue WHERE id = ?").get(id) as { attempts: number } | undefined;
+  const attempts = (row?.attempts ?? 0) + 1;
+  if (attempts >= MAX_NOTIFICATION_ATTEMPTS) {
+    db.prepare("UPDATE notification_queue SET status = 'failed', attempts = ? WHERE id = ?").run(attempts, id);
+    return { status: "failed", attempts };
+  }
+  // Exponential backoff in minutes: 2, 4, 8, 16 … capped at 30.
+  const delayMin = Math.min(2 ** attempts, 30);
+  db.prepare(
+    `UPDATE notification_queue
+     SET status = 'pending', attempts = ?, nextAttemptAt = datetime('now', ?)
+     WHERE id = ?`
+  ).run(attempts, `+${delayMin} minutes`, id);
+  return { status: "pending", attempts };
 }
 
 /**
@@ -564,6 +618,105 @@ export function countBiometricDaysPresent(studentId: string, termId: string): nu
     )
     .get(studentId, termId) as { days: number };
   return row?.days ?? 0;
+}
+
+// ── Users & auth sessions ────────────────────────────────────────────────────
+
+export interface UserRow {
+  id: number;
+  username: string;
+  passwordHash: string;
+  role: string;
+  fullName: string;
+  mustChangePassword: number;
+  createdAt: string;
+}
+
+export function countUsers(): number {
+  return (getDb().prepare("SELECT COUNT(*) AS c FROM users").get() as { c: number }).c;
+}
+
+export function createUser(u: {
+  username: string;
+  passwordHash: string;
+  role: string;
+  fullName?: string;
+  mustChangePassword?: boolean;
+}): number {
+  const result = getDb()
+    .prepare(
+      `INSERT INTO users (username, passwordHash, role, fullName, mustChangePassword)
+       VALUES (@username, @passwordHash, @role, @fullName, @mustChangePassword)`
+    )
+    .run({
+      username: u.username,
+      passwordHash: u.passwordHash,
+      role: u.role,
+      fullName: u.fullName ?? "",
+      mustChangePassword: u.mustChangePassword ? 1 : 0,
+    }) as Database.RunResult;
+  return result.lastInsertRowid as number;
+}
+
+export function getUserByUsername(username: string): UserRow | null {
+  return (getDb().prepare("SELECT * FROM users WHERE username = ? COLLATE NOCASE").get(username) as UserRow) ?? null;
+}
+
+export function getUserById(id: number): UserRow | null {
+  return (getDb().prepare("SELECT * FROM users WHERE id = ?").get(id) as UserRow) ?? null;
+}
+
+/** Users without password hashes — safe to serialize to clients. */
+export function listUsers() {
+  return getDb()
+    .prepare("SELECT id, username, role, fullName, mustChangePassword, createdAt FROM users ORDER BY username")
+    .all();
+}
+
+export function updateUserPassword(id: number, passwordHash: string): void {
+  getDb()
+    .prepare("UPDATE users SET passwordHash = ?, mustChangePassword = 0 WHERE id = ?")
+    .run(passwordHash, id);
+}
+
+export function deleteUser(id: number): { changes: number } {
+  return getDb().prepare("DELETE FROM users WHERE id = ?").run(id);
+}
+
+export function createSession(token: string, userId: number, expiresAt: string): void {
+  getDb()
+    .prepare("INSERT INTO auth_sessions (token, userId, expiresAt) VALUES (?, ?, ?)")
+    .run(token, userId, expiresAt);
+}
+
+/** Returns the session joined to its user, or null if missing/expired. */
+export function getSession(token: string): { userId: number; role: string; username: string; expiresAt: string } | null {
+  const row = getDb()
+    .prepare(
+      `SELECT s.userId, s.expiresAt, u.role, u.username
+       FROM auth_sessions s JOIN users u ON u.id = s.userId
+       WHERE s.token = ?`
+    )
+    .get(token) as { userId: number; role: string; username: string; expiresAt: string } | undefined;
+  if (!row) return null;
+  if (new Date(row.expiresAt).getTime() < Date.now()) {
+    deleteSession(token);
+    return null;
+  }
+  return row;
+}
+
+export function deleteSession(token: string): void {
+  getDb().prepare("DELETE FROM auth_sessions WHERE token = ?").run(token);
+}
+
+/** Invalidates every session for a user — used after a password change. */
+export function deleteSessionsForUser(userId: number): void {
+  getDb().prepare("DELETE FROM auth_sessions WHERE userId = ?").run(userId);
+}
+
+export function purgeExpiredSessions(): void {
+  getDb().prepare("DELETE FROM auth_sessions WHERE expiresAt < ?").run(new Date().toISOString());
 }
 
 // ── Full data export ───────────────────────────────────────────────────────────

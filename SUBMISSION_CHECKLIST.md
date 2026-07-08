@@ -64,7 +64,28 @@ it if you'd like it done.
 
 ---
 
-## Hardening applied this pass (security)
+## Production-readiness work (done)
+
+Closed the top "ready for business" gaps identified in review:
+
+- **Authentication & roles** — every `/api/*` route now requires a session token
+  (scrypt-hashed passwords, server-side sessions with expiry). Two roles:
+  **admin** (full access + user management) and **teacher** (records, grades,
+  attendance). A default admin is seeded on first run and must reset its password.
+  Login gate, forced password change, and logout are wired into the UI.
+- **Reliable SMS** — failed notifications now retry with exponential backoff
+  (2→4→8→16 min, capped) up to 5 attempts before being marked failed, instead of
+  being dropped on first failure.
+- **Automated tests + CI** — a `vitest` suite (auth hashing, sessions, retry/
+  backoff, DB) plus a GitHub Actions workflow running typecheck, tests, and build
+  on every push/PR.
+- **Polish** — version bumped to 1.0.0; browser/app title corrected from the
+  scaffold default; `.env.example` documents the new auth variables.
+
+**Still outstanding (agreed follow-up):** encryption of sensitive fields at rest
+(app-level AES-256-GCM) — the one remaining production gap.
+
+## Hardening applied earlier (security)
 
 Fixed a **credential-exposure** issue: school settings store live secrets
 (`gemini_api_key`, `hubtel_client_secret`, `api_key`, `registrar_key`,

@@ -25,6 +25,7 @@ import {
   Clock
 } from 'lucide-react';
 import { Student, AttendanceRecord } from '../types';
+import { apiFetch } from '../lib/api';
 import { classes } from '../data';
 
 interface AttendanceRegisterViewProps {
@@ -183,7 +184,7 @@ export default function AttendanceRegisterView({
       setSmsLogs(prev => [newSms, ...prev]);
 
       // Persist to notification_queue so the SMS engine picks it up
-      fetch('/api/notifications/queue', {
+      apiFetch('/api/notifications/queue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -225,7 +226,7 @@ export default function AttendanceRegisterView({
 
     // Persist each absence alert to the notification queue
     absentees.forEach(student => {
-      fetch('/api/notifications/queue', {
+      apiFetch('/api/notifications/queue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

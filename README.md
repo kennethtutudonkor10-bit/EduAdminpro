@@ -39,6 +39,21 @@ fees, staff directory, an AI admin agent, and parent SMS alerts.
    ```
 4. Open **http://localhost:3000** (Express serves the app with Vite in middleware
    mode; set `PORT` to change it). Data is stored in SQLite under `./data/`.
+5. **Sign in.** On first run a default administrator is created —
+   **`admin` / `admin123`** — and you'll be prompted to set a new password
+   immediately. Set `EDUADMIN_ADMIN_USERNAME` / `EDUADMIN_ADMIN_PASSWORD` to seed
+   your own instead.
+
+## Accounts & roles
+
+Every API request requires authentication. Users have one of two roles:
+
+- **Admin** — full access, including settings, data export, deleting records, and
+  managing other users.
+- **Teacher** — day-to-day use: view records, enter grades, take attendance.
+
+The Android companion app authenticates with a shared machine key
+(`EDUADMIN_API_KEY`, sent as `X-EduAdmin-Key`).
 
 ## Desktop app & installer
 

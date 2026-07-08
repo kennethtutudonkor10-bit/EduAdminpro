@@ -24,6 +24,7 @@ import {
   markNotificationDispatched,
   markNotificationFailed,
   markNotificationRead,
+  recordNotificationAttempt,
   getAllStaff,
   upsertStaff,
   deleteStaff,
@@ -36,7 +37,27 @@ import {
   saveBiometricAttendance,
   getBiometricAttendanceByTerm,
   countBiometricDaysPresent,
+  countUsers,
+  createUser,
+  getUserByUsername,
+  getUserById,
+  listUsers,
+  updateUserPassword,
+  deleteUser,
+  createSession,
+  getSession,
+  deleteSession,
+  deleteSessionsForUser,
+  purgeExpiredSessions,
 } from "./db";
+import {
+  hashPassword,
+  verifyPassword,
+  generateToken,
+  sessionExpiry,
+  validatePassword,
+  type Role,
+} from "./auth";
 
 dotenv.config();
 
@@ -51,13 +72,40 @@ const HOST = process.env.HOST || "0.0.0.0";
 const userDataPath = process.env.USER_DATA || path.join(process.cwd(), "data");
 initDb(userDataPath);
 
+// ── Bootstrap the first administrator ──────────────────────────────────────────
+// On a fresh database there are no users, which would lock everyone out. Seed a
+// single admin from EDUADMIN_ADMIN_USERNAME / EDUADMIN_ADMIN_PASSWORD, or fall
+// back to admin/admin123 flagged mustChangePassword so the first login forces a
+// reset. Never overwrites an existing user set.
+function bootstrapAdmin(): void {
+  purgeExpiredSessions();
+  if (countUsers() > 0) return;
+  const username = process.env.EDUADMIN_ADMIN_USERNAME || "admin";
+  const password = process.env.EDUADMIN_ADMIN_PASSWORD || "admin123";
+  const mustChange = !process.env.EDUADMIN_ADMIN_PASSWORD; // force reset only for the default
+  createUser({
+    username,
+    passwordHash: hashPassword(password),
+    role: "admin",
+    fullName: "Administrator",
+    mustChangePassword: mustChange,
+  });
+  if (mustChange) {
+    console.warn(
+      `[auth] No users found — created default admin "${username}" with a temporary ` +
+        `password. Log in and change it immediately (or set EDUADMIN_ADMIN_PASSWORD).`
+    );
+  }
+}
+bootstrapAdmin();
+
 // ── API access guard ─────────────────────────────────────────────────────────
 // The local desktop app (loopback) is always trusted. For other machines on the
 // LAN, an optional shared key locks down /api/*: set EDUADMIN_API_KEY (env) or the
 // `api_key` setting, and clients must then send a matching X-EduAdmin-Key header
 // (the Android app already does). If no key is configured, the API stays open for
 // backward compatibility — admins opt into hardening by setting a key.
-const PUBLIC_API_PATHS = new Set(["/api/health", "/api/v1/system/handshake"]);
+const PUBLIC_API_PATHS = new Set(["/api/health", "/api/v1/system/handshake", "/api/auth/login"]);
 
 function isLoopback(req: express.Request): boolean {
   const addr = req.socket.remoteAddress || "";
@@ -94,19 +142,141 @@ function maskSecretSettings(all: Record<string, string>): Record<string, string>
   return out;
 }
 
+// Authenticated identity attached to each request by the auth middleware.
+interface AuthContext { userId: number | null; role: Role; username: string; via: "session" | "apikey"; }
+declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
+  namespace Express { interface Request { auth?: AuthContext; } }
+}
+
+function bearerToken(req: express.Request): string | null {
+  const h = req.get("Authorization") || "";
+  return h.startsWith("Bearer ") ? h.slice(7).trim() : null;
+}
+
+// Global gate for /api/*. A request is authorized if it carries either a valid
+// session token (from POST /api/auth/login) or the shared machine key
+// (X-EduAdmin-Key), which the Android companion app uses. Everything else is 401.
 app.use((req, res, next) => {
   if (!req.path.startsWith("/api")) return next();      // static SPA / assets
-  if (PUBLIC_API_PATHS.has(req.path)) return next();     // liveness + pairing handshake
-  if (isLoopback(req)) return next();                    // local desktop app
+  if (PUBLIC_API_PATHS.has(req.path)) return next();     // liveness, handshake, login
+
+  const token = bearerToken(req);
+  if (token) {
+    const s = getSession(token);
+    if (s) {
+      req.auth = { userId: s.userId, role: (s.role as Role), username: s.username, via: "session" };
+      return next();
+    }
+  }
+
   const key = configuredApiKey();
-  if (!key) return next();                               // open LAN (no key configured)
-  if (req.get("X-EduAdmin-Key") === key) return next();  // authorized LAN client
-  return res.status(401).json({ error: "Unauthorized: a valid X-EduAdmin-Key is required." });
+  if (key && req.get("X-EduAdmin-Key") === key) {
+    // Trusted machine client (mobile sync). Treated as admin-level service access.
+    req.auth = { userId: null, role: "admin", username: "service", via: "apikey" };
+    return next();
+  }
+
+  return res.status(401).json({ error: "Authentication required. Log in to obtain a session token." });
 });
+
+// Route guard: require an admin identity. Use on destructive / configuration routes.
+function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
+  if (req.auth?.role === "admin") return next();
+  return res.status(403).json({ error: "Administrator privileges required for this action." });
+}
+
+/** True when the caller may see raw secret values (authenticated admin, or the loopback desktop). */
+function mayViewSecrets(req: express.Request): boolean {
+  return req.auth?.role === "admin" || isLoopback(req);
+}
 
 // Body parsing runs after the access guard so unauthorized LAN requests are
 // rejected before their payload is ever parsed.
 app.use(express.json({ limit: "50mb" }));
+
+// ── Authentication routes ──────────────────────────────────────────────────────
+
+function publicUser(u: { id: number; username: string; role: string; fullName: string; mustChangePassword: number }) {
+  return { id: u.id, username: u.username, role: u.role, fullName: u.fullName, mustChangePassword: !!u.mustChangePassword };
+}
+
+// POST /api/auth/login  { username, password } -> { token, user }
+app.post("/api/auth/login", (req, res) => {
+  const { username, password } = req.body || {};
+  if (!username || !password) return res.status(400).json({ error: "username and password are required." });
+  const user = getUserByUsername(String(username));
+  // Verify even on a missing user (against a dummy hash) to keep timing uniform.
+  const ok = user
+    ? verifyPassword(String(password), user.passwordHash)
+    : verifyPassword(String(password), "0".repeat(32) + ":" + "0".repeat(128));
+  if (!user || !ok) return res.status(401).json({ error: "Invalid username or password." });
+
+  const token = generateToken();
+  createSession(token, user.id, sessionExpiry());
+  res.json({ token, user: publicUser(user) });
+});
+
+// POST /api/auth/logout — invalidates the presented session token.
+app.post("/api/auth/logout", (req, res) => {
+  const token = bearerToken(req);
+  if (token) deleteSession(token);
+  res.json({ ok: true });
+});
+
+// GET /api/auth/me — current identity.
+app.get("/api/auth/me", (req, res) => {
+  if (!req.auth) return res.status(401).json({ error: "Not authenticated." });
+  if (req.auth.userId === null) return res.json({ user: { username: req.auth.username, role: req.auth.role, service: true } });
+  const user = getUserById(req.auth.userId);
+  if (!user) return res.status(401).json({ error: "Not authenticated." });
+  res.json({ user: publicUser(user) });
+});
+
+// POST /api/auth/change-password  { currentPassword, newPassword } — self-service.
+app.post("/api/auth/change-password", (req, res) => {
+  if (!req.auth || req.auth.userId === null) return res.status(403).json({ error: "A user session is required." });
+  const { currentPassword, newPassword } = req.body || {};
+  const user = getUserById(req.auth.userId);
+  if (!user) return res.status(401).json({ error: "Not authenticated." });
+  if (!verifyPassword(String(currentPassword || ""), user.passwordHash)) {
+    return res.status(401).json({ error: "Current password is incorrect." });
+  }
+  const invalid = validatePassword(String(newPassword || ""));
+  if (invalid) return res.status(400).json({ error: invalid });
+  updateUserPassword(user.id, hashPassword(String(newPassword)));
+  deleteSessionsForUser(user.id); // force re-login everywhere
+  res.json({ ok: true });
+});
+
+// ── User management (admin only) ───────────────────────────────────────────────
+
+app.get("/api/auth/users", requireAdmin, (_req, res) => {
+  res.json(listUsers());
+});
+
+app.post("/api/auth/users", requireAdmin, (req, res) => {
+  const { username, password, role = "teacher", fullName = "" } = req.body || {};
+  if (!username || !password) return res.status(400).json({ error: "username and password are required." });
+  if (role !== "admin" && role !== "teacher") return res.status(400).json({ error: "role must be 'admin' or 'teacher'." });
+  const invalid = validatePassword(String(password));
+  if (invalid) return res.status(400).json({ error: invalid });
+  if (getUserByUsername(String(username))) return res.status(409).json({ error: "That username already exists." });
+  const id = createUser({ username: String(username), passwordHash: hashPassword(String(password)), role, fullName: String(fullName) });
+  res.json({ id, username, role, fullName });
+});
+
+app.delete("/api/auth/users/:id", requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  if (req.auth?.userId === id) return res.status(400).json({ error: "You cannot delete your own account." });
+  const target = getUserById(id);
+  if (target?.role === "admin" && listUsers().filter((u: any) => u.role === "admin").length <= 1) {
+    return res.status(400).json({ error: "Cannot delete the last administrator." });
+  }
+  deleteSessionsForUser(id);
+  const result = deleteUser(id);
+  res.json({ deleted: result.changes > 0 });
+});
 
 // Initialize Gemini Client safely — reads from env first, then falls back to DB settings
 function resolveApiKey(): string | null {
@@ -486,7 +656,7 @@ app.post("/api/save-student", (req, res) => {
   res.json(upsertStudent({ id, name, classId, gender: gender || "Male", status: status || "Enrolled", photo, phoneNumber }));
 });
 
-app.delete("/api/db/students/:id", (req, res) => {
+app.delete("/api/db/students/:id", requireAdmin, (req, res) => {
   const result = deleteStudent(req.params.id);
   res.json({ deleted: result.changes > 0 });
 });
@@ -546,21 +716,21 @@ app.post("/api/db/scores/batch", (req, res) => {
 // ── Settings routes ────────────────────────────────────────────────────────────
 
 app.get("/api/db/settings", (req, res) => {
-  // The trusted desktop app (loopback) sees real values; LAN clients get secrets masked.
+  // Admins (and the loopback desktop) see real values; everyone else gets secrets masked.
   const all = getAllSettings();
-  res.json(isLoopback(req) ? all : maskSecretSettings(all));
+  res.json(mayViewSecrets(req) ? all : maskSecretSettings(all));
 });
 
 app.get("/api/db/settings/:key", (req, res) => {
   const value = getSetting(req.params.key);
   if (value === null) return res.status(404).json({ error: "Setting not found." });
-  if (SECRET_SETTING_KEYS.has(req.params.key) && !isLoopback(req)) {
+  if (SECRET_SETTING_KEYS.has(req.params.key) && !mayViewSecrets(req)) {
     return res.json({ key: req.params.key, value: value ? SECRET_MASK : "" });
   }
   res.json({ key: req.params.key, value });
 });
 
-app.post("/api/db/settings", (req, res) => {
+app.post("/api/db/settings", requireAdmin, (req, res) => {
   const { key, value } = req.body;
   if (!key || value === undefined) return res.status(400).json({ error: "key and value are required." });
   setSetting(String(key), String(value));
@@ -652,20 +822,28 @@ app.post("/api/notifications/dispatch", async (req, res) => {
   if (pending.length === 0) return res.json({ dispatched: 0, failed: 0, provider });
 
   let dispatched = 0;
+  let retrying = 0;
   let failed = 0;
 
   for (const notification of pending) {
+    let ok = false;
     try {
-      const ok = await sendNotification(notification);
-      if (ok) { markNotificationDispatched(notification.id); dispatched++; }
-      else     { markNotificationFailed(notification.id);    failed++;     }
+      ok = await sendNotification(notification);
     } catch {
-      markNotificationFailed(notification.id);
-      failed++;
+      ok = false;
+    }
+    if (ok) {
+      markNotificationDispatched(notification.id);
+      dispatched++;
+    } else {
+      // Backoff + retry until the attempt cap, after which it's marked failed.
+      const outcome = recordNotificationAttempt(notification.id);
+      if (outcome.status === "failed") failed++;
+      else retrying++;
     }
   }
 
-  res.json({ dispatched, failed, total: pending.length, provider });
+  res.json({ dispatched, retrying, failed, total: pending.length, provider });
 });
 
 // Returns which SMS provider is active and its (masked) config.
@@ -701,7 +879,7 @@ app.post("/api/db/staff", (req, res) => {
   res.json({ success: true });
 });
 
-app.delete("/api/db/staff/:staffId", (req, res) => {
+app.delete("/api/db/staff/:staffId", requireAdmin, (req, res) => {
   deleteStaff(req.params.staffId);
   res.json({ deleted: req.params.staffId });
 });
@@ -1009,7 +1187,7 @@ app.post("/api/v1/notifications/:id/read", (req, res) => {
 
 // ── Data export ────────────────────────────────────────────────────────────────
 
-app.get("/api/export", (_req, res) => {
+app.get("/api/export", requireAdmin, (_req, res) => {
   const data = exportAllData();
   // A backup file travels (USB, email) — never bake live credentials into it.
   const safeSettings: Record<string, string> = {};

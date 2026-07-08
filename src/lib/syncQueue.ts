@@ -71,16 +71,30 @@ function newId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-async function attempt(op: Op): Promise<boolean> {
+import { authHeaders, clearToken } from "./api";
+
+type AttemptResult = "ok" | "retry" | "drop";
+
+async function attempt(op: Op): Promise<AttemptResult> {
   try {
+    const base: Record<string, string> = op.body !== undefined ? { "Content-Type": "application/json" } : {};
     const res = await fetch(op.url, {
       method: op.method,
-      headers: op.body !== undefined ? { "Content-Type": "application/json" } : undefined,
+      headers: authHeaders(base),
       body: op.body !== undefined ? JSON.stringify(op.body) : undefined,
     });
-    return res.ok;
+    if (res.ok) return "ok";
+    if (res.status === 401) {
+      // Session expired — stop and retry after the user logs in again.
+      clearToken();
+      return "retry";
+    }
+    // 408/429 and 5xx are transient; other 4xx (403/400/404/409/422) never
+    // succeed on replay, so drop them rather than block the whole outbox.
+    if (res.status === 408 || res.status === 429 || res.status >= 500) return "retry";
+    return "drop";
   } catch {
-    return false;
+    return "retry";
   }
 }
 
@@ -101,8 +115,9 @@ export async function flushOutbox(): Promise<void> {
     while (true) {
       const ops = loadOutbox();
       if (ops.length === 0) break;
-      const ok = await attempt(ops[0]);
-      if (!ok) break; // preserve order; the interval/online handler will retry
+      const result = await attempt(ops[0]);
+      if (result === "retry") break; // preserve order; the interval/online handler will retry
+      // "ok" (synced) or "drop" (permanent client error) — remove from the outbox.
       const remaining = loadOutbox();
       remaining.shift();
       saveOutbox(remaining);
@@ -116,7 +131,10 @@ export async function flushOutbox(): Promise<void> {
 async function send(op: Op): Promise<void> {
   // If nothing is queued, try a direct send for the common (online) fast path.
   // If anything is already queued, append to preserve ordering.
-  if (loadOutbox().length === 0 && (await attempt(op))) return;
+  if (loadOutbox().length === 0) {
+    const result = await attempt(op);
+    if (result === "ok" || result === "drop") return; // done, or permanently rejected
+  }
   enqueue(op);
   void flushOutbox();
 }
