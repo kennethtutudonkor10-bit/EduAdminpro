@@ -1,0 +1,33 @@
+# Render Blueprint — free, zero-cost deployment of EduAdmin Pro.
+#
+# EduAdmin Pro is a persistent Express server with a local SQLite database, so it
+# needs a real Node process (not serverless). Render's free web service provides
+# exactly that. Deploy: render.com -> New -> Blueprint -> pick this repo/branch.
+#
+# Free-tier notes:
+#  - The service sleeps after ~15 min idle; the next request cold-starts (~1 min).
+#  - The free tier has no persistent disk, so the SQLite data resets on redeploy
+#    or cold start. That's fine for a demo. For durable data, attach a paid disk
+#    mounted at ./data (or set USER_DATA to its mount path).
+services:
+  - type: web
+    name: eduadmin-pro
+    runtime: node
+    plan: free
+    # --include=dev forces the build tools (vite/esbuild/tailwind/tsc) to install
+    # even though NODE_ENV=production, which npm would otherwise use to skip them.
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Stable field-encryption key so encrypted data stays readable across
+      # restarts. Render generates a random value once and keeps it.
+      - key: EDUADMIN_ENCRYPTION_KEY
+        generateValue: true
+      # Set your admin password in the Render dashboard (kept out of git). If you
+      # skip it, a default "admin" / "admin123" is created and forces a reset on
+      # first login.
+      - key: EDUADMIN_ADMIN_PASSWORD
+        sync: false
